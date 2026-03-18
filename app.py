@@ -6,6 +6,67 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Risk Calculator", layout="wide")
 
+# Custom CSS styling
+st.markdown("""
+    <style>
+        .main {
+            padding: 2rem;
+        }
+        .header-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            color: white;
+        }
+        .header-gradient h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .header-gradient p {
+            margin: 10px 0 0 0;
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        .risk-high {
+            background-color: #ffebee;
+            border-left: 4px solid #f44336;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .risk-high h3 {
+            color: #c62828;
+            margin: 0;
+            font-size: 1.5em;
+        }
+        .risk-high p {
+            color: #d32f2f;
+            font-size: 2em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .risk-low {
+            background-color: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .risk-low h3 {
+            color: #2e7d32;
+            margin: 0;
+            font-size: 1.5em;
+        }
+        .risk-low p {
+            color: #388e3c;
+            font-size: 2em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 @st.cache_resource
 def load_models():
     logit = joblib.load('lr_baseline_model.pkl')
@@ -15,28 +76,68 @@ def load_models():
     return logit, xgboost, rf_critical, shap_explainer
 
 def main():
-    st.title("In-patient Death Risk Calculator")
+    # Header with gradient background
+    st.markdown("""
+        <div class="header-gradient">
+            <h1>🏥 In-patient Death Risk Calculator</h1>
+            <p>Evidence-based pediatric anesthesia risk assessment tool</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Model selection in sidebar
+    st.sidebar.markdown("## ⚙️ Settings")
     logit_model, xgb_model, rf_model, shap_explainer = load_models()
-    model_choice = st.sidebar.selectbox("Select Model", ["Logit Regression", "XGBoost", "Random Forest Critical"])
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.header("Patient Basics")
-        weight = st.number_input("Weight (kg)", 0.0, 200.0, 70.0)
-        episode = st.number_input("Episode Number", 1, 100, 1)
-        emergency = st.checkbox("Emergency Admission")
-        cardiac_surg = st.checkbox("Cardiac Surgery")
-
-    with col2:
-        st.header("Risk Factors")
+    model_choice = st.sidebar.selectbox(
+        "Select Risk Model",
+        ["Logit Regression", "XGBoost", "Random Forest Critical"],
+        help="Choose which ML model to use for risk prediction"
+    )
+    
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("""
+    ### ℹ️ About This Tool
+    This calculator uses machine learning models trained on pediatric anesthesia data to estimate patient risk.
+    
+    **Always combine with clinical judgment.**
+    """)
+    
+    # Main content
+    with st.expander("👤 Patient Basics", expanded=True):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            weight = st.number_input("⚖️ Weight (kg)", 0.0, 200.0, 70.0)
+        with col2:
+            episode = st.number_input("🔢 Episode Number", 1, 100, 1)
+        with col3:
+            emergency = st.checkbox("🚨 Emergency Admission")
+        with col4:
+            cardiac_surg = st.checkbox("❤️ Cardiac Surgery")
+    
+    with st.expander("⚠️ Risk Factors", expanded=True):
         risk_factors = [
-            "Parental smoking history", "URTI / Chest infection", "Congenital Heart Disease",
-            "Developmental delay", "Autistic Spectrum Disorder", "Epilepsy", "Cancer",
-            "Renal Impairment", "Liver impairment", "Preterm",
-            "Impaired conscious state (GCS < 13)", "Congenital anomalies / handicap"
+            "Parental smoking history", 
+            "URTI / Chest infection", 
+            "Congenital Heart Disease",
+            "Developmental delay", 
+            "Autistic Spectrum Disorder", 
+            "Epilepsy", 
+            "Cancer",
+            "Renal Impairment", 
+            "Liver impairment", 
+            "Preterm",
+            "Impaired conscious state (GCS < 13)", 
+            "Congenital anomalies / handicap"
         ]
-        selections = {rf: st.checkbox(rf) for rf in risk_factors}
-
+        
+        cols = st.columns(2)
+        selections = {}
+        for i, rf in enumerate(risk_factors):
+            with cols[i % 2]:
+                selections[rf] = st.checkbox(rf, key=f"rf_{i}")
+    
+    # Information box
+    st.info("💡 **Clinical Tip:** This calculator should be used as a supplementary tool alongside comprehensive clinical assessment and patient history.")
+    
     input_data = {
         'const': 1.0,
         'Weight': weight,
@@ -59,8 +160,13 @@ def main():
     }
     
     features_df = pd.DataFrame([input_data])
-
-    if st.button("Calculate Risk"):
+    
+    # Calculate button with custom styling
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col2:
+        calculate_button = st.button("📊 Calculate Risk", use_container_width=True, key="calc_button")
+    
+    if calculate_button:
         # Remove 'const' for models that don't need it
         features_for_prediction = features_df.drop(columns=['const'])
         
@@ -70,16 +176,27 @@ def main():
             prob = xgb_model.predict_proba(features_for_prediction)[0][1]
         else:  # Random Forest Critical
             prob = rf_model.predict_proba(features_for_prediction)[0][1]
-            
-        # Display risk prediction
-        st.metric("Estimated Risk", f"{prob:.2%}")
+        
+        # Display risk prediction with improved styling
         if prob > 0.5:
-            st.error("High Risk")
+            st.markdown(f"""
+                <div class="risk-high">
+                    <h3>⚠️ HIGH RISK</h3>
+                    <p>{{prob:.1%}}</p>
+                    <p style="font-size: 0.9em; color: #d32f2f;">Risk of in-patient death</p>
+                </div>
+            """, unsafe_allow_html=True)
         else:
-            st.success("Standard Risk")
+            st.markdown(f"""
+                <div class="risk-low">
+                    <h3>✅ STANDARD RISK</h3>
+                    <p>{{prob:.1%}}</p>
+                    <p style="font-size: 0.9em; color: #388e3c;">Risk of in-patient death</p>
+                </div>
+            """, unsafe_allow_html=True)
         
         # SHAP Explanation
-        st.subheader("Prediction Breakdown (SHAP Analysis)")
+        st.subheader("📈 Prediction Breakdown (SHAP Analysis)")
         try:
             # Generate SHAP values
             shap_values = shap_explainer.shap_values(features_for_prediction)
@@ -116,7 +233,7 @@ def main():
             st.pyplot(fig)
             
         except Exception as e:
-            st.warning(f"SHAP explanation could not be generated: {str(e)}")
+            st.warning(f"⚠️ SHAP explanation could not be generated: {str(e)}")
 
 if __name__ == '__main__':
     main()
