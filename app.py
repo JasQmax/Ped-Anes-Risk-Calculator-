@@ -16,7 +16,7 @@ def load_models():
 
 def main():
     st.title("In-patient Death Risk Calculator")
-    logit_model, xgb_model, rf_critical_model, shap_explainer = load_models()
+    logit_model, xgb_model, rf_model, shap_explainer = load_models()
     model_choice = st.sidebar.selectbox("Select Model", ["Logit Regression", "XGBoost", "Random Forest Critical"])
 
     col1, col2 = st.columns(2)
@@ -61,54 +61,62 @@ def main():
     features_df = pd.DataFrame([input_data])
 
     if st.button("Calculate Risk"):
+        # Remove 'const' for models that don't need it
+        features_for_prediction = features_df.drop(columns=['const'])
+        
         if model_choice == "Logit Regression":
             prob = logit_model.predict(features_df)[0]
-            model_name = "Logit Regression"
         elif model_choice == "XGBoost":
-            xgb_feats = features_df.drop(columns=['const'])
-            prob = xgb_model.predict_proba(xgb_feats)[0][1]
-            model_name = "XGBoost"
+            prob = xgb_model.predict_proba(features_for_prediction)[0][1]
         else:  # Random Forest Critical
-            rf_feats = features_df.drop(columns=['const'])
-            prob = rf_critical_model.predict_proba(rf_feats)[0][1]
-            model_name = "Random Forest Critical"
+            prob = rf_model.predict_proba(features_for_prediction)[0][1]
             
+        # Display risk prediction
         st.metric("Estimated Risk", f"{prob:.2%}")
-        if prob > 0.5: 
+        if prob > 0.5:
             st.error("High Risk")
-        else: 
+        else:
             st.success("Standard Risk")
         
-        # Display SHAP explanation for all models
-        st.subheader("Model Prediction Breakdown (SHAP Explanation)")
+        # SHAP Explanation
+        st.subheader("Prediction Breakdown (SHAP Analysis)")
         try:
-            features_for_shap = features_df.drop(columns=['const'])
-            
-            # Calculate SHAP values
-            shap_values = shap_explainer.shap_values(features_for_shap)
+            # Generate SHAP values
+            shap_values = shap_explainer.shap_values(features_for_prediction)
             
             # Handle different SHAP output formats
             if isinstance(shap_values, list):
-                shap_values = shap_values[1]  # Get positive class SHAP values
+                shap_vals = shap_values[1]  # For binary classification, take class 1
+            else:
+                shap_vals = shap_values
             
-            # Create force plot
-            st.set_option('deprecation.showPyplotGlobalUse', False)
+            # Force plot
+            st.write("**Feature Contributions to Prediction:**")
             force_plot = shap.force_plot(
                 shap_explainer.expected_value if not isinstance(shap_explainer.expected_value, list) else shap_explainer.expected_value[1],
-                shap_values[0],
-                features_for_shap.iloc[0],
+                shap_vals[0],
+                features_for_prediction.iloc[0],
+                feature_names=features_for_prediction.columns.tolist(),
+                matplotlib=True,
                 show=False
             )
-            st.write(force_plot)
+            st.pyplot(force_plot)
             
-            # Create feature importance bar plot
-            st.write("**Top Contributing Features:**")
+            # Summary plot (feature importance)
+            st.write("**Top Risk Factors:**")
             fig, ax = plt.subplots()
-            shap.summary_plot(shap_values, features_for_shap, plot_type="bar", show=False)
+            shap.summary_plot(
+                shap_vals,
+                features_for_prediction,
+                plot_type="bar",
+                matplotlib=True,
+                show=False,
+                max_display=10
+            )
             st.pyplot(fig)
             
         except Exception as e:
-            st.warning(f"SHAP explanation not available: {str(e)}")
+            st.warning(f"SHAP explanation could not be generated: {str(e)}")
 
 if __name__ == '__main__':
     main()
